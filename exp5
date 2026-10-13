@@ -1,0 +1,445 @@
+import numpy as np
+import itertools
+from collections import defaultdict
+class Factor:
+    def __init__(self, variables, cardinalities, values):
+        """
+        Represents a factor in a Bayesian Network.
+
+        Args:
+            variables: List of variable names (e.g., ['A', 'B'])
+            cardinalities: List of integers specifying number of states for each variable
+            values: numpy array with probability values
+        """
+        self.variables = variables
+        self.cardinalities = cardinalities
+        self.values = values
+        self._validate_inputs()
+
+    def _validate_inputs(self):
+        """Validate that inputs are consistent"""
+        assert len(self.variables) == len(self.cardinalities)
+        assert self.values.shape == tuple(self.cardinalities)
+
+    def factor_product(self, other):
+        """
+        Multiply two factors together.
+
+        Returns:
+            New Factor representing the product
+        """
+        # TODO: Implement factor product
+        # Steps:
+        # 1. Find union of variables from both factors
+        # 2. Determine new cardinalities
+        # 3. Align both factors to the new variable order
+        # 4. Multiply the values using broadcasting
+
+        # Example structure:
+        all_vars = list(set(self.variables) | set(other.variables))
+        all_vars.sort()  # For consistent ordering
+
+        # Get cardinalities for all variables
+        card_dict = {}
+        for var, card in zip(self.variables, self.cardinalities):
+            card_dict[var] = card
+        for var, card in zip(other.variables, other.cardinalities):
+            card_dict[var] = card
+
+        new_cardinalities = [card_dict[var] for var in all_vars]
+
+        # Align self to new variable order
+        self_reordered = self._reorder_variables(all_vars)
+
+        # Align other to new variable order
+        other_reordered = other._reorder_variables(all_vars)
+
+        # Multiply values
+        # changes made here *******************************************************************************************
+        new_values = self_reordered * other_reordered
+
+        return Factor(all_vars, new_cardinalities, new_values)
+
+
+
+
+    # new code added here *******************************************************************************************
+    def _reorder_variables(self, new_order):
+        """Reorder the factor's variables to match new_order"""
+        # TODO: Implement variable reordering
+        # Hint: Use np.transpose with the appropriate axis mapping
+        present = [v for v in new_order if v in self.variables]
+        perm = [self.variables.index(v) for v in present]
+        vals = np.transpose(self.values, perm)
+        shape = [self.cardinalities[self.variables.index(v)] if v in self.variables else 1 for v in new_order]
+        return vals.reshape(shape)
+
+    def sum_out(self, variable):
+        """
+        Sum out a variable from this factor.
+
+        Args:
+            variable: Variable name to sum out
+
+        Returns:
+            New Factor with variable eliminated
+        """
+        # TODO: Implement summing out a variable
+        # Steps:
+        # 1. Find index of variable to eliminate
+        # 2. Sum along that axis
+        # 3. Create new factor with remaining variables
+
+        if variable not in self.variables:
+            return self
+
+        var_index = self.variables.index(variable)
+        new_vars = [v for v in self.variables if v != variable]
+        new_cardinalities = [c for i, c in enumerate(self.cardinalities) if i != var_index]
+
+        # Sum along the specified axis
+        new_values = np.sum(self.values, axis=var_index)
+
+        return Factor(new_vars, new_cardinalities, new_values)
+
+    def normalize(self):
+        """Normalize the factor to sum to 1"""
+        self.values = self.values / np.sum(self.values)
+        return self
+
+    def __str__(self):
+        """String representation of the factor"""
+        return f"Factor(vars={self.variables}, cards={self.cardinalities}, shape={self.values.shape})"
+
+    def __repr__(self):
+        return self.__str__()
+
+        
+def variable_elimination(factors, elimination_order, query_variables=None):
+    """
+    Perform variable elimination for inference.
+
+    Args:
+        factors: List of Factor objects
+        elimination_order: List of variable names to eliminate
+        query_variables: List of variable names to keep (if None, keep all non-eliminated)
+
+    Returns:
+        Factor representing the marginal distribution
+    """
+    # TODO: Implement the Variable Elimination algorithm
+    # Steps:
+    # 1. Make a copy of the factor list
+    # 2. For each variable in elimination_order:
+    #    a. Find all factors containing that variable
+    #    b. Multiply them together
+    #    c. Sum out the variable
+    #    d. Add resulting factor back to the list
+    # 3. Multiply all remaining factors
+    # 4. Normalize if needed
+
+    working_factors = factors.copy()
+    max_factor_size = 0  # For Question 3 analysis
+
+    print("Starting Variable Elimination...")
+
+    for i, elim_var in enumerate(elimination_order):
+        print(f"Step {i+1}: Eliminating {elim_var}")
+
+        # Find factors containing the variable to eliminate
+        relevant_factors = [f for f in working_factors if elim_var in f.variables]
+
+        if not relevant_factors:
+            print(f"  No factors contain {elim_var}, skipping...")
+            continue
+
+        # Remove these factors from working set
+        for f in relevant_factors:
+            working_factors.remove(f)
+
+        print(f"  Multiplying {len(relevant_factors)} factors...")
+
+        # Multiply all relevant factors
+        if len(relevant_factors) == 1:
+            product_factor = relevant_factors[0]
+        else:
+            product_factor = relevant_factors[0]
+            for f in relevant_factors[1:]:
+                product_factor = product_factor.factor_product(f)
+
+        # Track maximum factor size for Question 3
+        current_size = np.prod(product_factor.values.shape)
+        max_factor_size = max(max_factor_size, current_size)
+        print(f"  Product factor size: {current_size}")
+
+        # Sum out the variable
+        print(f"  Summing out {elim_var}...")
+        new_factor = product_factor.sum_out(elim_var)
+        working_factors.append(new_factor)
+
+        print(f"  Remaining factors: {len(working_factors)}")
+
+    # Multiply all remaining factors
+    print("Multiplying remaining factors...")
+    if len(working_factors) == 0:
+        raise ValueError("No factors remaining after elimination")
+
+    result = working_factors[0]
+    for f in working_factors[1:]:
+        result = result.factor_product(f)
+
+    # If query_variables specified, ensure we have exactly those variables
+    if query_variables is not None:
+        # Sum out any extra variables not in query
+        extra_vars = [v for v in result.variables if v not in query_variables]
+        for var in extra_vars:
+            result = result.sum_out(var)
+
+    # Normalize the final result
+    result.normalize()
+
+    print(f"Maximum factor size during elimination: {max_factor_size}")
+    return result, max_factor_size
+
+def create_student_network():
+    """
+    Create the Student Bayesian Network from Koller's book
+    Returns a list of factors
+    """
+    # Difficulty: binary [0=Easy, 1=Hard]
+    factor_D = Factor(['D'], [2], np.array([0.6, 0.4]))
+
+    # Intelligence: binary [0=Low, 1=High]
+    factor_I = Factor(['I'], [2], np.array([0.7, 0.3]))
+
+    # Grade: ternary [0=A, 1=B, 2=C]
+    # P(G | I, D)
+    values_G = np.zeros((2, 2, 3))  # I, D, G
+    # I=Low, D=Easy
+    values_G[0, 0, :] = [0.3, 0.4, 0.3]   # P(G | I=Low, D=Easy)
+    # I=Low, D=Hard
+    values_G[0, 1, :] = [0.05, 0.25, 0.7] # P(G | I=Low, D=Hard)
+    # I=High, D=Easy
+    values_G[1, 0, :] = [0.9, 0.08, 0.02] # P(G | I=High, D=Easy)
+    # I=High, D=Hard
+    values_G[1, 1, :] = [0.5, 0.3, 0.2]   # P(G | I=High, D=Hard)
+
+    factor_G = Factor(['I', 'D', 'G'], [2, 2, 3], values_G)
+
+    # SAT: binary [0=Low, 1=High]
+    # P(S | I)
+    values_S = np.zeros((2, 2))  # I, S
+    values_S[0, :] = [0.95, 0.05]  # P(S | I=Low)
+    values_S[1, :] = [0.2, 0.8]    # P(S | I=High)
+    factor_S = Factor(['I', 'S'], [2, 2], values_S)
+
+    # Letter: binary [0=Bad, 1=Good]
+    # P(L | G)
+    values_L = np.zeros((3, 2))  # G, L
+    values_L[0, :] = [0.1, 0.9]   # P(L | G=A)
+    values_L[1, :] = [0.4, 0.6]   # P(L | G=B)
+    values_L[2, :] = [0.99, 0.01] # P(L | G=C)
+    factor_L = Factor(['G', 'L'], [3, 2], values_L)
+
+    return [factor_D, factor_I, factor_G, factor_S, factor_L]
+
+
+def create_loan_network():
+    """
+    Create the Loan Approval network for Question 4
+    """
+    # Age: binary [0=Young, 1=Old] - Protected attribute
+    factor_A = Factor(['A'], [2], np.array([0.5, 0.5]))
+
+    # Zip Code: binary [0=Urban, 1=Rural] - Proxy attribute
+    # P(Z | A)
+    values_Z = np.zeros((2, 2))  # A, Z
+    values_Z[0, :] = [0.8, 0.2]  # P(Z | A=Young)
+    values_Z[1, :] = [0.3, 0.7]  # P(Z | A=Old)
+    factor_Z = Factor(['A', 'Z'], [2, 2], values_Z)
+
+    # Income: binary [0=Low, 1=High]
+    # P(I | A)
+    values_I = np.zeros((2, 2))  # A, I
+    values_I[0, :] = [0.7, 0.3]  # P(I | A=Young)
+    values_I[1, :] = [0.4, 0.6]  # P(I | A=Old)
+    factor_I = Factor(['A', 'I'], [2, 2], values_I)
+
+    # Loan Approved: binary [0=False, 1=True]
+    # P(L | I, Z)
+    values_L = np.zeros((2, 2, 2))  # I, Z, L
+    # I=Low, Z=Urban
+    values_L[0, 0, :] = [0.9, 0.1]   # P(L | I=Low, Z=Urban)
+    # I=Low, Z=Rural
+    values_L[0, 1, :] = [0.7, 0.3]   # P(L | I=Low, Z=Rural)
+    # I=High, Z=Urban
+    values_L[1, 0, :] = [0.2, 0.8]   # P(L | I=High, Z=Urban)
+    # I=High, Z=Rural
+    values_L[1, 1, :] = [0.1, 0.9]   # P(L | I=High, Z=Rural)
+    factor_L = Factor(['I', 'Z', 'L'], [2, 2, 2], values_L)
+
+    return [factor_A, factor_Z, factor_I, factor_L]
+
+def test_factor_operations():
+    """Test cases for Question 1"""
+    print("=== Testing Factor Operations ===")
+
+    # Test 1: Simple factor product
+    print("\nTest 1: Factor Product (Different Variables)")
+    factor1 = Factor(['A'], [2], np.array([0.6, 0.4]))
+    factor2 = Factor(['B'], [2], np.array([0.7, 0.3]))
+
+    try:
+        result = factor1.factor_product(factor2)
+        print(f"Success: {result}")
+        print(f"Result shape: {result.values.shape}")
+        print(f"Result sum: {np.sum(result.values)}")
+    except Exception as e:
+        print(f"Error: {e}")
+
+    # Test 2: Factor product with overlapping variables
+    print("\nTest 2: Factor Product (Overlapping Variables)")
+    factor3 = Factor(['A', 'B'], [2, 2], np.array([[0.1, 0.2], [0.3, 0.4]]))
+    factor4 = Factor(['B', 'C'], [2, 2], np.array([[0.5, 0.5], [0.5, 0.5]]))
+
+    try:
+        result = factor3.factor_product(factor4)
+        print(f"Success: {result}")
+        print(f"Result variables: {result.variables}")
+    except Exception as e:
+        print(f"Error: {e}")
+
+    # Test 3: Summing out
+    print("\nTest 3: Summing Out")
+    factor5 = Factor(['A', 'B'], [2, 2], np.array([[0.1, 0.2], [0.3, 0.4]]))
+
+    try:
+        result = factor5.sum_out('A')
+        print(f"Success: {result}")
+        print(f"Result after summing out A: {result.values}")
+    except Exception as e:
+        print(f"Error: {e}")
+
+
+def test_variable_elimination():
+    """Test cases for Question 2"""
+    print("\n=== Testing Variable Elimination ===")
+
+    # Simple test network: A -> B
+    print("\nTest: Simple A->B Network")
+    factor_A = Factor(['A'], [2], np.array([0.6, 0.4]))
+    factor_B_given_A = Factor(['A', 'B'], [2, 2], np.array([[0.8, 0.2], [0.3, 0.7]]))
+
+    try:
+        result, max_size = variable_elimination([factor_A, factor_B_given_A],
+                                              elimination_order=['A'],
+                                              query_variables=['B'])
+        print(f"Success! P(B): {result.values}")
+        expected = np.array([0.6, 0.4])  # Should be close to this
+        print(f"Expected: {expected}")
+    except Exception as e:
+        print(f"Error: {e}")
+
+
+def analyze_elimination_orders():
+    """Analysis for Question 3"""
+    print("\n=== Analyzing Elimination Orders ===")
+
+    # changes made here **************************************************
+
+    factors = create_student_network()
+
+    # Good elimination order (minimizes intermediate factors)
+    good_order = ['S', 'D', 'I', 'G']  # Example good order
+
+    # Bad elimination order (creates large intermediate factors)
+    bad_order = ['G', 'I', 'D', 'S']  # Example bad order
+
+    _, size_good = variable_elimination(factors, good_order, query_variables=['L'])
+    _, size_bad = variable_elimination(factors, bad_order, query_variables=['L'])
+
+    print('Good order max factor size: ', size_good)
+    print('Bad order max factor size: ', size_bad)
+
+
+import numpy as np
+def fairness_analysis():
+    """Analysis for Question 4 (Bonus)"""
+    print("\n=== Fairness Analysis ===")
+
+    factors = create_loan_network()
+
+    # Observational query: P(L | A)
+    print("Observational Query: P(L | A=Young) and P(L | A=Old)")
+
+    # For P(L | A=Young), we need to condition on A=Young
+    # This involves setting evidence - you'll need to modify VE for this
+    # For now, let's compute joint and then condition
+
+    try:
+        # Compute joint P(A, L)
+        joint, _ = variable_elimination(factors, elimination_order=['I', 'Z'], query_variables=['A', 'L'])
+        print(f"Joint P(A, L):\n{joint.values}")
+
+        # Normalize to get conditionals
+        # P(L | A=Young) = P(A=Young, L) / P(A=Young)
+        marginal_A, _ = variable_elimination(factors, elimination_order=['I', 'Z', 'L'], query_variables=['A'])
+        print(f"Marginal P(A): {marginal_A.values}")
+
+    except Exception as e:
+        print(f"Error in fairness analysis: {e}")
+        print("Note: You'll need to implement evidence handling for complete analysis")
+
+#changes madde here *************************************************************************
+def reduce_factors(factors, var, value):
+    out = []
+    for f in factors:
+        if var not in f.variables:
+            out.append(f)
+            continue
+        idx = f.variables.index(var)
+        new_vars = [v for v in f.variables if v != var]
+        if not new_vars:                 # constant factor, normalization handles it
+            continue
+        new_cards = [c for i, c in enumerate(f.cardinalities) if i != idx]
+        out.append(Factor(new_vars, new_cards, np.take(f.values, value, axis=idx)))
+    return out
+
+#changes madde here *************************************************************************
+def p_loan(factors, a):
+    reduced = reduce_factors(factors, 'A', a)         # set A = a
+    result, _ = variable_elimination(reduced, ['I', 'Z'], query_variables=['L'])
+    return result.values[1]                           # index 1 = L True
+
+factors = create_loan_network()    # [P(A), P(Z|A), P(I|A), P(L|I,Z)]
+
+# 1. Observational: P(L=True | A)
+print("P(L=T | A=Young):", p_loan(factors, 0))       # 0.344
+print("P(L=T | A=Old)  :", p_loan(factors, 1))       # 0.618
+
+# 2. Intervention do(A=a): remove P(A), then fix A
+no_PA = factors[1:]
+print("P(L=T | do(A=Young)):", p_loan(no_PA, 0))     # 0.344
+print("P(L=T | do(A=Old))  :", p_loan(no_PA, 1))     # 0.618
+
+def main():
+    """Main function to run all experiments"""
+    print("Variable Elimination Lab - Starting Experiments")
+    print("=" * 50)
+
+    # Question 1: Factor Operations
+    test_factor_operations()
+
+    # Question 2: Variable Elimination
+    test_variable_elimination()
+
+    # Question 3: Elimination Order Analysis
+    analyze_elimination_orders()
+
+    # Question 4: Fairness Analysis (Bonus)
+    fairness_analysis()
+
+if __name__ == "__main__":
+    main()
+
+      
