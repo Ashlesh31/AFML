@@ -1,0 +1,44 @@
+import numpy as np
+import networkx as nx
+from gensim.models import Word2Vec
+from sklearn.cluster import KMeans
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score
+from sklearn.metrics import adjusted_rand_score
+
+# 1. Graph + gender (authors mostly collaborate within their own gender -> bias)
+G = nx.stochastic_block_model([100, 100], [[0.10, 0.01], [0.01, 0.10]], seed=42)
+gender = np.array([0]*100 + [1]*100)        # 0 = male, 1 = female
+
+# 2. Random walks + Word2Vec = Node2Vec
+def random_walks(G, num_walks=10, length=20):
+    walks, nodes = [], list(G.nodes())
+    for _ in range(num_walks):
+        for n in nodes:
+            walk = [n]
+            for _ in range(length - 1):
+                nbrs = list(G.neighbors(walk[-1]))
+                if not nbrs: break
+                walk.append(np.random.choice(nbrs))
+            walks.append([str(x) for x in walk])
+    return walks
+
+w2v = Word2Vec(random_walks(G), vector_size=64, window=5,
+               min_count=1, sg=1, seed=42, workers=1)
+emb = np.array([w2v.wv[str(n)] for n in range(len(G))])
+
+# 3. Measure bias
+def evaluate(emb, name):
+    clusters = KMeans(n_clusters=2, n_init=10, random_state=42).fit_predict(emb)
+    ari = adjusted_rand_score(gender, clusters)                  # clustering vs gender
+    acc = cross_val_score(LogisticRegression(max_iter=1000), emb, gender, cv=5).mean()
+    print(f"{name}: cluster-gender ARI = {ari:.2f}, gender prediction accuracy = {acc:.2f}")
+
+evaluate(emb, "BEFORE debiasing")
+
+# 4. Debias: subtract the gender direction
+direction = emb[gender == 0].mean(axis=0) - emb[gender == 1].mean(axis=0)
+direction = direction / np.linalg.norm(direction)               # unit vector
+emb_debiased = emb - np.outer(emb @ direction, direction)       # remove projection
+
+evaluate(emb_debiased, "AFTER debiasing")
