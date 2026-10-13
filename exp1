@@ -1,0 +1,45 @@
+pip install pgmpy
+pip install networkx
+from pgmpy.models import DiscreteBayesianNetwork
+
+student_model = DiscreteBayesianNetwork()
+student_model.add_edges_from([('D', 'G'), ('I', 'G'), ('I', 'S'), ('G', 'L')])
+
+import matplotlib.pyplot as plt
+import networkx as nx
+plt.figure(figsize=(6,4))
+pos = nx.circular_layout(student_model)
+nx.draw(student_model, pos, with_labels=True, node_color='lightblue', node_size=2000, font_weight='bold', arrows=True)
+
+# Query 1
+print(student_model.is_dconnected('D', 'I'))                    # False
+
+# Query 2
+print(student_model.is_dconnected('D', 'I', observed=['G']))    # True
+
+# Query 3
+print(student_model.is_dconnected('D', 'S'))                    # False
+
+# Query 4
+print(student_model.is_dconnected('D', 'S', observed=['I']))    # False
+
+# Query 5
+print(student_model.is_dconnected('D', 'L', observed=['G']))    # False
+
+# Query 6
+print(student_model.is_dconnected('D', 'L', observed=['I']))    # True
+
+
+def find_d_sperated_nodes(model, target, evidence_set):
+  all_nodes = set(model.nodes())
+  nodes_to_check = all_nodes - {target} - set(evidence_set)
+  d_seperated_list = []
+
+  for node in nodes_to_check:
+    is_connected = model.is_dconnected(node, target, observed = list(evidence_set))
+
+    if not is_connected:
+      d_seperated_list.append(node)
+  return d_seperated_list
+
+print(find_d_sperated_nodes(student_model, 'D', {'G'}))
