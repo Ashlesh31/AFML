@@ -1,0 +1,95 @@
+# Install first if needed:
+# %pip install pgmpy numpy
+
+import numpy as np
+import itertools
+from pgmpy.models import DiscreteMarkovNetwork
+from pgmpy.factors.discrete import DiscreteFactor
+from pgmpy.inference import VariableElimination
+
+
+# 1. Create the Markov Network
+model = DiscreteMarkovNetwork()
+
+model.add_nodes_from(['A', 'B', 'C', 'D'])
+
+model.add_edges_from([
+    ('A', 'B'),
+    ('B', 'C'),
+    ('C', 'D'),
+    ('A', 'C')
+])
+
+
+# 2. Create factor tables
+factor_ab = DiscreteFactor(
+    variables=['A', 'B'],
+    cardinality=[2, 2],
+    values=np.array([[10, 1], [1, 10]])
+)
+
+factor_bc = DiscreteFactor(
+    variables=['B', 'C'],
+    cardinality=[2, 2],
+    values=np.array([[10, 1], [1, 10]])
+)
+
+factor_cd = DiscreteFactor(
+    variables=['C', 'D'],
+    cardinality=[2, 2],
+    values=np.array([[10, 1], [1, 10]])
+)
+
+factor_ac = DiscreteFactor(
+    variables=['A', 'C'],
+    cardinality=[2, 2],
+    values=np.array([[1, 10], [10, 1]])
+)
+
+model.add_factors(
+    factor_ab, factor_bc, factor_cd, factor_ac
+)
+
+print("Model Check:", model.check_model())
+
+
+# 3. Create the inference engine
+infer = VariableElimination(model)
+
+import itertools
+
+def check_conditional_independence(infer, X, Z, given_vars=[]):
+    # try every combination of evidence values (0/1)
+    for vals in itertools.product([0, 1], repeat=len(given_vars)):
+        ev = dict(zip(given_vars, vals)) if given_vars else None
+
+        joint = infer.query([X, Z], evidence=ev, show_progress=False)
+        px = infer.query([X], evidence=ev, show_progress=False)
+        pz = infer.query([Z], evidence=ev, show_progress=False)
+
+        j = joint.values
+        if list(joint.variables) != [X, Z]:   # make rows = X, columns = Z
+            j = j.T
+        j = j / j.sum()                       # normalize
+        a = px.values / px.values.sum()
+        b = pz.values / pz.values.sum()
+
+        if not np.allclose(j, np.outer(a, b), atol=0.01):
+            return False
+    return True
+
+print("GLOBAL")
+print("A ⟂ D | B,C :", check_conditional_independence(infer,'A', 'D', ['B', 'C']))   # True
+print("A ⟂ D | B   :", check_conditional_independence(infer,'A', 'D', ['B']))        # False
+print("A ⟂ D | C   :", check_conditional_independence(infer,'A', 'D', ['C']))        # True
+print("B ⟂ D | C   :", check_conditional_independence(infer,'B', 'D', ['C']))        # True
+print("B ⟂ D | A   :", check_conditional_independence(infer,'B', 'D', ['A']))        # False
+
+print("PAIRWISE")
+print("A ⟂ D | B,C :", check_conditional_independence(infer,'A', 'D', ['B', 'C']))   # True
+print("B ⟂ D | A,C :", check_conditional_independence(infer,'B', 'D', ['A', 'C']))   # True
+
+print("LOCAL")
+print("B ⟂ D | A,C :", check_conditional_independence(infer,'B', 'D', ['A', 'C']))   # True
+print("D ⟂ A | C   :", check_conditional_independence(infer,'D', 'A', ['C']))        # True
+print("D ⟂ B | C   :", check_conditional_independence(infer,'D', 'B', ['C']))        # True
